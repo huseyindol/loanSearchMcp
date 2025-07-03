@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { LoanSearchTool } from "./presentation/mcp/loan-search-tool.js";
+import { LoanSearchTool } from "./tools/loan-search-tool.js";
 import { Logger } from "./utils/logger.js";
 
 class LoansMcpServer {
@@ -11,8 +11,8 @@ class LoansMcpServer {
   private loanSearchTool: LoanSearchTool;
 
   constructor() {
-    // Environment variables kontrolü
-    const geminiApiKey = process.env.GEMINI_API_KEY;
+    // Gemini API key'i environment'dan al
+    const geminiApiKey = "AIzaSyBqCXa4DvtXesrJDacSpqny35ytjfgupEo";
     if (!geminiApiKey) {
       Logger.error("❌ GEMINI_API_KEY environment variable gerekli!");
       Logger.error("Kullanım: GEMINI_API_KEY=your_key_here npm start");
@@ -26,7 +26,7 @@ class LoansMcpServer {
     });
 
     // Loan search tool'u initialize et
-    this.loanSearchTool = new LoanSearchTool();
+    this.loanSearchTool = new LoanSearchTool(geminiApiKey);
 
     Logger.info("🏦 Kredi MCP Sunucusu başlatılıyor...");
     this.setupTools();
@@ -48,15 +48,15 @@ class LoansMcpServer {
         try {
           Logger.query(`Kredi sorgusu alındı`, { query });
           
-          const result = await this.loanSearchTool.handle({ query });
-          const parsedResult = JSON.parse(result);
+          const result = await this.loanSearchTool.searchLoans(query);
+          const formattedResult = this.loanSearchTool.formatSearchResult(result);
           
-          Logger.tool("search_loans", { query }, `${parsedResult.totalFound || 0} kredi bulundu`);
+          Logger.tool("search_loans", { query }, `${result.totalFound} kredi bulundu`);
           
           return {
             content: [{
               type: "text",
-              text: this.formatForMcp(parsedResult)
+              text: formattedResult
             }]
           };
         } catch (error) {
@@ -151,42 +151,6 @@ Lütfen tekrar deneyin veya sorgunuzu farklı şekilde ifade edin.`
     );
 
     Logger.info("✅ MCP resources kaydedildi");
-  }
-
-  private formatForMcp(result: any): string {
-    if (!result.success) {
-      return `❌ **Hata**: ${result.error}`;
-    }
-
-    const { parsedParams, loans, totalFound, summary } = result;
-    
-    let output = `🏦 **Kredi Arama Sonuçları**
-
-**Sorgu**: ${result.query}
-**Kredi Türü**: ${parsedParams.typeDisplayName}
-**Tutar**: ${parsedParams.formattedAmount}
-**Vade**: ${parsedParams.formattedTerm}
-
-**Özet**: ${summary}
-
-`;
-
-    if (totalFound > 0) {
-      output += `**Bulunan Krediler** (${totalFound} adet):\n\n`;
-      
-      loans.forEach((loan: any, index: number) => {
-        output += `**${index + 1}. ${loan.bankName}**
-- Faiz Oranı: ${loan.formattedInterestRate}
-- Aylık Ödeme: ${loan.formattedMonthlyPayment}
-- Toplam Ödeme: ${loan.formattedTotalPayment}
-- Toplam Faiz: ${loan.formattedTotalInterest}
-- ${loan.eligibilityNote}
-
-`;
-      });
-    }
-
-    return output;
   }
 
   async start() {
