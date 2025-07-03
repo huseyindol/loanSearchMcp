@@ -6,7 +6,7 @@ export class AIService {
   private genai: GoogleGenAI;
 
   constructor(apiKey: string) {
-    this.genai = new GoogleGenAI({ apiKey });
+    this.genai = new GoogleGenAI({apiKey});
   }
 
   async parseQuery(query: string): Promise<ParsedQuery> {
@@ -14,7 +14,7 @@ export class AIService {
       const prompt = this.createParsingPrompt(query);
       
       const response = await this.genai.models.generateContent({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.0-flash-001',
         contents: prompt,
         config: {
           temperature: 0.1, // Düşük temperature ile tutarlı sonuçlar

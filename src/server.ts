@@ -44,7 +44,7 @@ class LoansMcpServer {
           query: z.string().describe("Kredi arama sorgusu - örnek: '5 milyon 48 ay vade konut kredisi sorgula'")
         }
       },
-      async ({ query }) => {
+      async ({ query }: { query: string }) => {
         try {
           Logger.query(`Kredi sorgusu alındı`, { query });
           
