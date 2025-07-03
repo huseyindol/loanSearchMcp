@@ -1,7 +1,9 @@
 import { z } from "zod";
+import https from "https";
+import { URL } from "url";
 import { AIService } from "../services/ai-service.js";
 import { LoanDataService } from "../services/loan-data-service.js";
-import { LoanSearchResult } from "../types/index.js";
+import { LoanSearchResult, LoanDetail, LoanType } from "../types/index.js";
 import { Logger } from "../utils/logger.js";
 
 export class LoanSearchTool {
@@ -43,17 +45,100 @@ export class LoanSearchTool {
 
     Logger.debug('Parse edilen parametreler:', parseResult.params);
 
-    // Kredileri ara
-    const loans = this.loanDataService.searchLoans(parseResult.params);
-    
-    Logger.info(`Kredi arama tamamlandı: ${loans.length} kredi bulundu`);
+    try {
+      // External API'ye GET isteği gönder
+      const apiUrl = `https://gatewayapi.test-gateways/pages/housingloan/list?Amount=${parseResult.params.amount}&Maturity=${parseResult.params.termMonths}`;
+      Logger.debug(`API isteği gönderiliyor: ${apiUrl}`);
+      
+      // Use https module instead of fetch to handle self-signed certificates
+      const data = await this.makeHttpsRequest(apiUrl);
+      const apiResponse = JSON.parse(data);
+      
+      Logger.debug(`API yanıtı alındı: ${apiResponse.products?.length || 0} ürün bulundu`);
 
-    return {
-      query,
-      parsedParams: parseResult.params,
-      loans,
-      totalFound: loans.length
-    };
+      // Products array'ini LoanDetail formatına dönüştür
+      const loans = this.transformProductsToLoans(apiResponse.products || [], parseResult.params.type);
+      
+      Logger.info(`Kredi arama tamamlandı: ${loans.length} kredi bulundu`);
+
+      return {
+        query,
+        parsedParams: parseResult.params,
+        loans,
+        totalFound: loans.length
+      };
+    } catch (error) {
+      Logger.error('API isteği sırasında hata:', error);
+      // Hata durumunda boş sonuç döndür
+      return {
+        query,
+        parsedParams: parseResult.params,
+        loans: [],
+        totalFound: 0
+      };
+    }
+  }
+
+  // HTTPS isteği yapan yardımcı metod
+  private makeHttpsRequest(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const parsedUrl = new URL(url);
+      
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 443,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        headers: {
+          'accept': 'text/plain',
+          'Device': '1'
+        },
+        // Self-signed certificate'ları kabul et
+        rejectUnauthorized: false
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+          }
+        });
+      });
+
+      req.on('error', (error) => {
+        reject(error);
+      });
+
+      req.end();
+    });
+  }
+
+  // API response'daki products'ı LoanDetail formatına dönüştür
+  private transformProductsToLoans(products: any[], loanType: LoanType): LoanDetail[] {
+    return products.map((product, index) => {
+      const loanDetail: LoanDetail = {
+        id: product.id?.toString() || `loan-${index}`,
+        bankName: product.bank?.name || 'Bilinmeyen Banka',
+        type: loanType,
+        interestRate: product.interestRate || 0,
+        monthlyPayment: product.monthlyInstallment || 0,
+        totalPayment: product.totalAmount || 0,
+        minAmount: product.amount || 0,
+        maxAmount: product.amount || 0,
+        maxTermMonths: product.maturity || 0,
+        eligibilityNote: product.loanRateText || product.name || 'Detaylı bilgi için bankaya başvurunuz'
+      };
+      return loanDetail;
+    }).sort((a, b) => a.interestRate - b.interestRate); // Faiz oranına göre sırala
   }
 
   // Sonuçları formatla
