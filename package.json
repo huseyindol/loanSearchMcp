@@ -1,11 +1,11 @@
 {
-  "name": "kredi-arama-mcp",
+  "name": "loans-mcp-server",
   "version": "1.0.0",
   "description": "Professional MCP server for housing loan calculations with natural language support",
   "type": "module",
   "main": "./dist/src/server.js",
   "bin": {
-    "kredi-arama-mcp": "./dist/src/server.js"
+    "loans-mcp-server": "./dist/src/server.js"
   },
   "scripts": {
     "build": "tsc",
@@ -15,13 +15,15 @@
     "clean": "rm -rf dist",
     "rebuild": "npm run clean && npm run build",
     "test": "node dist/src/server.js --log-level INFO",
-    "debug": "node dist/src/server.js --log-level DEBUG"
+    "debug": "node dist/src/server.js --log-level DEBUG",
+    "inspect": "npx @modelcontextprotocol/inspector node dist/src/server.js",
+    "inspect:debug": "npm run build && npx @modelcontextprotocol/inspector node dist/src/server.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.55.1",
+    "@google/genai": "^1.8.0",
     "@modelcontextprotocol/sdk": "latest",
     "axios": "^1.10.0",
-    "openai": "^5.8.2"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^24.0.10",

@@ -1,367 +1,173 @@
 #!/usr/bin/env node
 
-/**
- * Housing Loan MCP Server with Claude AI Integration
- * Provides natural language processing for Turkish loan queries using Claude API
- */
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { LoanSearchTool } from "./tools/loan-search-tool.js";
+import { Logger } from "./utils/logger.js";
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  McpError,
-  ErrorCode,
-} from '@modelcontextprotocol/sdk/types.js';
-
-import { Logger, LogLevel } from './utils/logger.js';
-import { ToolManager } from './tools/index.js';
-import { NaturalLanguageService } from './services/natural-language.js';
-
-/**
- * Server configuration from environment variables
- */
-const SERVER_CONFIG = {
-  name: 'kredi-arama-mcp-server',
-  version: '2.0.0',
-  logLevel: (process.env.LOG_LEVEL as keyof typeof LogLevel) || 'INFO',
-  claudeEnabled: !!process.env.ANTHROPIC_API_KEY,
-  debugMode: process.env.DEBUG_MODE === 'true'
-};
-
-/**
- * Main MCP Server class with Claude AI integration
- */
-class HousingLoanMcpServer {
-  private server: Server;
-  private initialized = false;
+class LoansMcpServer {
+  private server: McpServer;
+  private loanSearchTool: LoanSearchTool;
 
   constructor() {
-    this.server = new Server(
+    // Gemini API key'i environment'dan al
+    const geminiApiKey = "AIzaSyBqCXa4DvtXesrJDacSpqny35ytjfgupEo";
+    if (!geminiApiKey) {
+      Logger.error("❌ GEMINI_API_KEY environment variable gerekli!");
+      Logger.error("Kullanım: GEMINI_API_KEY=your_key_here npm start");
+      process.exit(1);
+    }
+
+    // MCP Server'ı oluştur
+    this.server = new McpServer({
+      name: "loans-mcp-server",
+      version: "1.0.0"
+    });
+
+    // Loan search tool'u initialize et
+    this.loanSearchTool = new LoanSearchTool(geminiApiKey);
+
+    Logger.info("🏦 Kredi MCP Sunucusu başlatılıyor...");
+    this.setupTools();
+    this.setupResources();
+  }
+
+  private setupTools() {
+    // Ana kredi arama tool'u
+    this.server.registerTool(
+      "search_loans",
       {
-        name: SERVER_CONFIG.name,
-        version: SERVER_CONFIG.version,
+        title: "Kredi Arama",
+        description: "Türkçe doğal dil ile kredi arama yapar. Konut, ihtiyaç ve taşıt kredilerini destekler.",
+        inputSchema: {
+          query: z.string().describe("Kredi arama sorgusu - örnek: '5 milyon 48 ay vade konut kredisi sorgula'")
+        }
       },
-      {
-        capabilities: {
-          tools: {},
-        },
+      async ({ query }) => {
+        try {
+          Logger.query(`Kredi sorgusu alındı`, { query });
+          
+          const result = await this.loanSearchTool.searchLoans(query);
+          const formattedResult = this.loanSearchTool.formatSearchResult(result);
+          
+          Logger.tool("search_loans", { query }, `${result.totalFound} kredi bulundu`);
+          
+          return {
+            content: [{
+              type: "text",
+              text: formattedResult
+            }]
+          };
+        } catch (error) {
+          Logger.error("Kredi arama hatası:", error);
+          return {
+            content: [{
+              type: "text",
+              text: `❌ **Hata Oluştu**
+
+Kredi arama sırasında bir hata oluştu: ${error instanceof Error ? error.message : String(error)}
+
+Lütfen tekrar deneyin veya sorgunuzu farklı şekilde ifade edin.`
+            }],
+            isError: true
+          };
+        }
       }
     );
 
-    this.setupRequestHandlers();
-    Logger.info('MCP Server instance created', { 
-      config: SERVER_CONFIG,
-      claudeIntegration: SERVER_CONFIG.claudeEnabled ? 'enabled' : 'disabled (missing ANTHROPIC_API_KEY)'
-    });
+    // Yardım tool'u
+    this.server.registerTool(
+      "loan_help",
+      {
+        title: "Kredi Yardım",
+        description: "Kredi arama sisteminin nasıl kullanılacağı hakkında bilgi verir",
+        inputSchema: {}
+      },
+      async () => {
+        return {
+          content: [{
+            type: "text",
+            text: `🏦 **Kredi Arama Sistemi Kullanım Kılavuzu**
+
+**Desteklenen Kredi Türleri:**
+- 🏠 **Konut Kredisi**: Ev alma için
+- 💰 **İhtiyaç Kredisi**: Genel ihtiyaçlar için  
+- 🚗 **Taşıt Kredisi**: Araç alma için
+
+**Sorgu Örnekleri:**
+- "5 milyon 48 ay vade konut kredisi sorgula"
+- "2milyon 60 ay konut"
+- "300bin 24ay ihtiyaç kredisi"
+- "1.5 milyon 36 ay taşıt kredisi"
+- "500 bin TL 12 ay ihtiyaç"
+
+**Tutar Formatları:**
+- Milyon: "5 milyon", "5m", "5M"
+- Bin: "300 bin", "300k", "300K"
+- Direkt: "500000"
+
+**Vade Formatları:**
+- Ay: "48 ay", "48ay", "48 aylık"
+- Yıl: "4 yıl", "4 sene" (otomatik 48 ay'a çevrilir)
+
+**Kullanım:**
+\`search_loans\` tool'unu kullanarak doğal Türkçe ile sorgu yapın. AI sistemi sorgunuzu analiz edip en uygun kredileri bulacaktır.`
+          }]
+        };
+      }
+    );
+
+    Logger.info("✅ MCP tools kaydedildi");
   }
 
-  /**
-   * Setup MCP request handlers
-   */
-  private setupRequestHandlers(): void {
-    // Handle list_tools requests
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
-      try {
-        const tools = ToolManager.getToolDefinitions();
-        
-        Logger.debug('Tools list requested', { 
-          toolCount: tools.length,
-          toolNames: tools.map(t => t.name)
-        });
-
-        return { tools };
-      } catch (error) {
-        Logger.error('Failed to list tools', { error });
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    });
-
-    // Handle call_tool requests
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name: toolName, arguments: args } = request.params;
-      const requestId = this.generateRequestId();
-
-      try {
-        Logger.info('Tool execution requested', {
-          requestId,
-          toolName,
-          hasArguments: !!args && Object.keys(args).length > 0
-        });
-
-        // Validate tool exists
-        if (!ToolManager.hasTools(toolName)) {
-          const availableTools = ToolManager.getToolNames();
-          Logger.warn('Unknown tool requested', { 
-            requestedTool: toolName,
-            availableTools 
-          });
-          
-          throw new McpError(
-            ErrorCode.MethodNotFound,
-            `Unknown tool: ${toolName}. Available tools: ${availableTools.join(', ')}`
-          );
-        }
-
-        // Validate arguments
-        const validationErrors = ToolManager.validateToolArguments(toolName, args);
-        if (validationErrors.length > 0) {
-          Logger.warn('Tool argument validation failed', {
-            requestId,
-            toolName,
-            errors: validationErrors
-          });
-
-          throw new McpError(
-            ErrorCode.InvalidParams,
-            `Invalid arguments: ${validationErrors.join(', ')}`
-          );
-        }
-
-        // Execute tool
-        const result = await ToolManager.executeTool(toolName, requestId, args);
-
-        Logger.info('Tool execution completed', {
-          requestId,
-          toolName,
-          success: !result.isError,
-          responseLength: result.content[0]?.text?.length || 0
-        });
-
-        return {
-          content: result.content,
-          isError: result.isError
+  private setupResources() {
+    // Sistem durumu resource'u
+    this.server.registerResource(
+      "system_status",
+      "system://status",
+      {
+        title: "Sistem Durumu",
+        description: "Kredi MCP sisteminin durumu",
+        mimeType: "text/plain"
+      },
+      async () => {
+        const status = {
+          service: "Kredi MCP Sunucusu",
+          version: "1.0.0",
+          status: "Aktif",
+          supportedLoanTypes: ["Konut", "İhtiyaç", "Taşıt"],
+          aiProvider: "Google Gemini",
+          lastUpdated: new Date().toLocaleString('tr-TR')
         };
 
-      } catch (error) {
-        // Handle MCP errors (already logged)
-        if (error instanceof McpError) {
-          throw error;
-        }
-
-        // Handle unexpected errors
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        Logger.error('Unexpected error during tool execution', {
-          requestId,
-          toolName,
-          error: errorMessage,
-          stack: error instanceof Error ? error.stack : undefined
-        });
-
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Tool execution failed: ${errorMessage}`
-        );
+        return {
+          contents: [{
+            uri: "system://status",
+            text: JSON.stringify(status, null, 2)
+          }]
+        };
       }
-    });
+    );
 
-    Logger.debug('Request handlers configured');
+    Logger.info("✅ MCP resources kaydedildi");
   }
 
-  /**
-   * Initialize the server and all components
-   */
-  async initialize(): Promise<void> {
-    if (this.initialized) {
-      Logger.warn('Server already initialized');
-      return;
-    }
-
+  async start() {
     try {
-      Logger.info('Initializing MCP server with Claude AI integration');
-
-      // Set log level
-      Logger.setLevel(LogLevel[SERVER_CONFIG.logLevel as keyof typeof LogLevel]);
-      
-      // Initialize tool manager
-      ToolManager.initialize();
-
-      // Test Claude API connectivity if enabled
-      if (SERVER_CONFIG.claudeEnabled) {
-        Logger.info('Testing Claude API connectivity');
-        const isConnected = await NaturalLanguageService.testConnectivity();
-        Logger.info('Claude API status', { connected: isConnected });
-      } else {
-        Logger.warn('Claude API disabled - set ANTHROPIC_API_KEY environment variable to enable AI features');
-      }
-
-      // Run health checks
-      const healthResults = await ToolManager.runHealthChecks();
-      const healthyTools = Object.values(healthResults).filter(r => r.healthy).length;
-      const totalTools = Object.keys(healthResults).length;
-
-      if (healthyTools < totalTools) {
-        Logger.warn('Some tools failed health checks', { 
-          healthyTools, 
-          totalTools, 
-          healthResults 
-        });
-      }
-
-      this.initialized = true;
-
-      Logger.info('MCP server initialized successfully', {
-        toolCount: ToolManager.getStatistics().totalTools,
-        toolNames: ToolManager.getToolNames(),
-        claudeIntegration: SERVER_CONFIG.claudeEnabled,
-        healthyTools: `${healthyTools}/${totalTools}`
-      });
-
-    } catch (error) {
-      Logger.error('Server initialization failed', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Start the server
-   */
-  async start(): Promise<void> {
-    try {
-      // Initialize if not already done
-      if (!this.initialized) {
-        await this.initialize();
-      }
-
-      // Create stdio transport
       const transport = new StdioServerTransport();
-      
-      Logger.info('Starting MCP server on stdio transport');
-
-      // Start server
       await this.server.connect(transport);
-
-      Logger.info('MCP server started successfully', {
-        serverName: SERVER_CONFIG.name,
-        version: SERVER_CONFIG.version,
-        transport: 'stdio',
-        tools: ToolManager.getToolNames()
-      });
-
-      // Run comprehensive tests in debug mode
-      if (SERVER_CONFIG.debugMode) {
-        Logger.info('Debug mode enabled - running comprehensive tests');
-        await this.runDebugTests();
-      }
-
-    } catch (error) {
-      Logger.error('Failed to start MCP server', {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined
-      });
       
+      Logger.info("🚀 Kredi MCP Sunucusu başarıyla başlatıldı!");
+      Logger.info("💡 Kullanımı için 'loan_help' tool'unu çağırın");
+      
+    } catch (error) {
+      Logger.error("❌ Sunucu başlatma hatası:", error);
       process.exit(1);
     }
   }
-
-  /**
-   * Run debug tests (only in debug mode)
-   */
-  private async runDebugTests(): Promise<void> {
-    try {
-      Logger.info('Running debug tests');
-      
-      // Test all tools
-      await ToolManager.runAllTests();
-      
-      // Test natural language service
-      await NaturalLanguageService.runTests();
-      
-      Logger.info('Debug tests completed successfully');
-      
-    } catch (error) {
-      Logger.warn('Debug tests failed (non-critical)', { error });
-    }
-  }
-
-  /**
-   * Generate unique request ID
-   */
-  private generateRequestId(): string {
-    return `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  /**
-   * Graceful shutdown
-   */
-  async shutdown(): Promise<void> {
-    Logger.info('Shutting down MCP server');
-    
-    try {
-      await this.server.close();
-      Logger.info('MCP server shutdown completed');
-    } catch (error) {
-      Logger.error('Error during server shutdown', { error });
-    }
-  }
 }
 
-/**
- * Handle process signals for graceful shutdown
- */
-function setupSignalHandlers(server: HousingLoanMcpServer): void {
-  const signals = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
-  
-  signals.forEach((signal) => {
-    process.on(signal, async () => {
-      Logger.info(`Received ${signal}, initiating graceful shutdown`);
-      await server.shutdown();
-      process.exit(0);
-    });
-  });
-
-  process.on('uncaughtException', (error) => {
-    Logger.error('Uncaught exception', { 
-      error: error.message,
-      stack: error.stack 
-    });
-    process.exit(1);
-  });
-
-  process.on('unhandledRejection', (reason, promise) => {
-    Logger.error('Unhandled promise rejection', { 
-      reason,
-      promise: promise.toString()
-    });
-    process.exit(1);
-  });
-}
-
-/**
- * Main function
- */
-async function main(): Promise<void> {
-  try {
-    // Create and start server
-    const server = new HousingLoanMcpServer();
-    
-    // Setup signal handlers
-    setupSignalHandlers(server);
-    
-    // Start server
-    await server.start();
-    
-  } catch (error) {
-    Logger.error('Application startup failed', {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined
-    });
-    process.exit(1);
-  }
-}
-
-// Start the application
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
-
-export { HousingLoanMcpServer }; 
+// Sunucuyu başlat
+const server = new LoansMcpServer();
+server.start().catch(console.error); 
