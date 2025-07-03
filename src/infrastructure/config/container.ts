@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import { LoanRepository, BankRepository } from '../../domain/repositories/index.js';
 import { LoanCalculationService } from '../../domain/services/index.js';
 import { AIService } from '../../application/interfaces/index.js';

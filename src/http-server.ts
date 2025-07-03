@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// Load environment variables from .env file
+import 'dotenv/config';
+
 import express from "express";
 import cors from "cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -205,15 +208,56 @@ class LoansMcpHttpServer {
                 });
                 
                 const data = await response.json();
+                console.log(data);
                 
                 if (data.success) {
-                  resultDiv.innerHTML = '<div class="success"><h3>Arama Sonuçları:</h3><p><strong>Sorgu:</strong> ' + data.query + '</p><p><strong>Bulunan Kredi Sayısı:</strong> ' + data.totalFound + '</p><p><strong>Özet:</strong> ' + data.summary + '</p></div>';
+                  let html = '<div class="success">';
+                  html += '<h3>🏦 Kredi Arama Sonuçları</h3>';
+                  html += '<p><strong>Sorgu:</strong> ' + data.query + '</p>';
+                  html += '<p><strong>Bulunan Kredi Sayısı:</strong> ' + data.totalFound + '</p>';
+                  
+                  if (data.summary) {
+                    html += '<p><strong>Özet:</strong> ' + data.summary + '</p>';
+                  }
+                  
+                  if (data.loans && data.loans.length > 0) {
+                    html += '<hr style="margin: 20px 0;">';
+                    html += '<h4>📋 Detaylı Kredi Listesi:</h4>';
+                    
+                    data.loans.forEach(function(loan, index) {
+                      html += '<div style="border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; background: #f9f9f9;">';
+                      html += '<h5 style="margin: 0 0 10px 0; color: #333;">' + (index + 1) + '. ' + loan.bankName + '</h5>';
+                      html += '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0;">';
+                      html += '<span><strong>🏦 Banka:</strong> ' + loan.bankName + '</span>';
+                      html += '<span><strong>📊 Faiz Oranı:</strong> %' + loan.interestRate + '</span>';
+                      html += '<span><strong>💰 Aylık Ödeme:</strong> ' + (loan.formattedMonthlyPayment || formatCurrency(loan.monthlyPayment)) + '</span>';
+                      html += '<span><strong>💳 Toplam Ödeme:</strong> ' + (loan.formattedTotalPayment || formatCurrency(loan.totalPayment)) + '</span>';
+                      html += '</div>';
+                      if (loan.eligibilityNote) {
+                        html += '<p style="margin: 10px 0 0 0; font-style: italic; color: #666;"><strong>ℹ️ Bilgi:</strong> ' + loan.eligibilityNote + '</p>';
+                      }
+                      html += '</div>';
+                    });
+                  }
+                  
+                  html += '</div>';
+                  resultDiv.innerHTML = html;
                 } else {
                   resultDiv.innerHTML = '<p class="error">❌ ' + data.error + '</p>';
                 }
               } catch (error) {
                 resultDiv.innerHTML = '<p class="error">❌ Bağlantı hatası: ' + error.message + '</p>';
               }
+            }
+            
+            // Para formatı için yardımcı fonksiyon
+            function formatCurrency(amount) {
+              return new Intl.NumberFormat('tr-TR', {
+                style: 'currency',
+                currency: 'TRY',
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0
+              }).format(amount);
             }
             
             // Enter tuşu ile arama
