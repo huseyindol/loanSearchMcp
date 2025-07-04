@@ -37,7 +37,7 @@ export class LoanSearchTool {
       Logger.warn(`Sorgu parse edilemedi: ${parseResult.error}`);
       return {
         query,
-        parsedParams: { type: 'ihtiyac' as any, amount: 0, termMonths: 0 },
+        parsedParams: { type: 'ihtiyac' as any, amount: 0, termMonths: 0, inventory: 'ihtiyaç - 100000', cash: 0 },
         loans: [],
         totalFound: 0
       };
@@ -135,7 +135,7 @@ export class LoanSearchTool {
         minAmount: product.amount || 0,
         maxAmount: product.amount || 0,
         maxTermMonths: product.maturity || 0,
-        eligibilityNote: product.loanRateText || product.name || 'Detaylı bilgi için bankaya başvurunuz'
+        eligibilityNote: product.loanRateText || product.name || 'Detaylı bilgi için bankaya başvurunuz',
       };
       return loanDetail;
     }).sort((a, b) => a.interestRate - b.interestRate); // Faiz oranına göre sırala
@@ -152,6 +152,8 @@ Aradığınız kriterlere uygun kredi bulunamadı.
 - Kredi Türü: ${this.loanDataService.getLoanTypeDisplayName(result.parsedParams.type)}
 - Tutar: ${this.formatCurrency(result.parsedParams.amount)}
 - Vade: ${result.parsedParams.termMonths} ay
+- Envanter: ${result.parsedParams.inventory}
+- Nakit: ${this.formatCurrency(result.parsedParams.cash)}
 
 Lütfen farklı kriterlerle tekrar deneyin.`;
     }
@@ -162,7 +164,8 @@ Lütfen farklı kriterlerle tekrar deneyin.`;
 - Kredi Türü: ${this.loanDataService.getLoanTypeDisplayName(result.parsedParams.type)}
 - Tutar: ${this.formatCurrency(result.parsedParams.amount)}
 - Vade: ${result.parsedParams.termMonths} ay
-
+- Envanter: ${result.parsedParams.inventory}
+- Nakit: ${this.formatCurrency(result.parsedParams.cash)}
 ---
 
 **Bulunan Krediler:**

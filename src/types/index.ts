@@ -10,6 +10,8 @@ export interface LoanSearchParams {
   type: LoanType;
   amount: number;
   termMonths: number;
+  inventory: string;
+  cash: number;
 }
 
 // Parse edilmiş sorgu sonucu
