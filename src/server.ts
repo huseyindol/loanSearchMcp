@@ -12,7 +12,7 @@ class LoansMcpServer {
 
   constructor() {
     // Gemini API key'i environment'dan al
-    const geminiApiKey = "AIzaSyBqCXa4DvtXesrJDacSpqny35ytjfgupEo";
+    const geminiApiKey = process.env.GEMINI_API_KEY || "dummyKey";
     if (!geminiApiKey) {
       Logger.error("❌ GEMINI_API_KEY environment variable gerekli!");
       Logger.error("Kullanım: GEMINI_API_KEY=your_key_here npm start");

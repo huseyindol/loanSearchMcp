@@ -47,7 +47,7 @@ export class LoanSearchTool {
 
     try {
       // External API'ye GET isteği gönder
-      const apiUrl = `https://gatewayapi.test-gateways/pages/housingloan/list?Amount=${parseResult.params.amount}&Maturity=${parseResult.params.termMonths}`;
+      const apiUrl = `${process.env.GATEWAY_API_HOUSINGLOAN_LIST}?Amount=${parseResult.params.amount}&Maturity=${parseResult.params.termMonths}`;
       Logger.debug(`API isteği gönderiliyor: ${apiUrl}`);
       
       // Use https module instead of fetch to handle self-signed certificates
